@@ -24,4 +24,5 @@ onMounted(async () => {
 </script>
 
 <template>
+  <router-view />
 </template>
