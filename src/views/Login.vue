@@ -25,7 +25,7 @@ const login = async () => {
   }
 
   console.log('Connecté')
-  router.push('/acceuil')
+  router.push('/accueil')
 }
 </script>
 
