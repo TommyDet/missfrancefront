@@ -1,8 +1,10 @@
 <script setup>
 import {onMounted, ref} from 'vue'
 import {supabase} from '@/lib/supabase'
+import {useRouter} from 'vue-router'
 
 const todos = ref([])
+const router = useRouter()
 
 onMounted(async () => {
 
@@ -20,6 +22,18 @@ onMounted(async () => {
 
   todos.value = data
 })
+
+const logout = async () => {
+  const { error } = await supabase.auth.signOut()
+
+  if (error) {
+    console.error(error)
+    return
+  }
+
+  router.push('/login')
+}
+
 </script>
 
 <template>
@@ -28,4 +42,11 @@ onMounted(async () => {
       {{ project.name }}
     </li>
   </ul>
+  <div>
+    <h1>Accueil</h1>
+
+    <button @click="logout">
+      Déconnexion
+    </button>
+  </div>
 </template>

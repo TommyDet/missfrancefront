@@ -1,15 +1,24 @@
 <script setup>
 import {supabase} from '../lib/supabase.ts'
 import {useRouter} from 'vue-router'
-import {onMounted} from "vue";
 
 const router = useRouter()
 
-onMounted(async () => {
+router.beforeEach(async (to) => {
+
   console.log('Ouverture page App')
 
-  router.push('/login')
+  const {
+    data: { session }
+  } = await supabase.auth.getSession()
 
+  if (!session && to.path !== '/login') {
+    return '/login'
+  }
+
+  if (session && to.path === '/login') {
+    return '/accueil'
+  }
 })
 
 </script>
