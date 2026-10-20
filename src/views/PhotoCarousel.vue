@@ -25,6 +25,15 @@ const instaUrl = computed(() =>
         : null
 )
 
+let startX = 0
+function onTouchStart(e) {
+  startX = e.changedTouches[0].clientX
+}
+function onTouchEnd(e) {
+  const dx = e.changedTouches[0].clientX - startX
+  if (Math.abs(dx) > 50) (dx < 0 ? next() : prev())
+}
+
 </script>
 
 <template>
@@ -45,6 +54,16 @@ const instaUrl = computed(() =>
     </div>
     <button @click="next">›</button>
   </div>
+
+  <button class="close" @click="emit('close')">✕</button>
+  <button class="nav prev" @click="prev">‹</button>
+
+  <div class="stage" @touchstart.passive="onTouchStart" @touchend.passive="onTouchEnd">
+    <!-- image + lien Instagram inchangés -->
+  </div>
+
+  <button class="nav next" @click="next">›</button>
+
 </template>
 
 <style scoped>
@@ -62,6 +81,24 @@ const instaUrl = computed(() =>
   text-decoration: underline;
 }
 .insta:hover { opacity: 0.8; }
-.close { position: absolute; top: 16px; right: 16px; }
 button { font-size: 2rem; background: none; border: 0; color: #fff; cursor: pointer; }
+
+.close { width: 44px; height: 44px; }
+
+@media (max-width: 640px) {
+  .overlay { gap: 0; }
+  .slide { max-width: 100vw; max-height: 70vh; border-radius: 0; }
+  .nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 44px;
+    height: 44px;
+    font-size: 1.6rem;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 50%;
+  }
+  .prev { left: 8px; }
+  .next { right: 8px; }
+}
 </style>
