@@ -2,23 +2,46 @@
 import { ref, onMounted } from 'vue'
 import { supabase } from '@/lib/supabase' // ton client existant
 import PhotoCarousel from '@/views/PhotoCarousel.vue'
-
+import { useRouter } from 'vue-router'
 
 const photos = ref([])
 const selected = ref(null)
 const related = ref([])
+const user = ref(null)
+const router = useRouter()
+
+async function logout() {
+  const { error } = await supabase.auth.signOut()
+  if (error) {
+    console.error(error)
+    return
+  }
+  user.value = null
+  router.push('/login') // adapte au chemin de ta page de login
+}
 
 onMounted(async () => {
-  const { data, error } = await supabase
-      .from('photos')
-      .select('*')
-      .order('position')
-  if (!error) photos.value = data
+  const { data: auth } = await supabase.auth.getUser()
+  user.value = auth.user
+
+  const [{ data: all }, { data: orders }] = await Promise.all([
+    supabase.from('photos').select('*').order('position'),
+    // grâce au RLS, seules les lignes de l'utilisateur connecté sont renvoyées
+    supabase.from('user_photo_order').select('photo_id, position'),
+  ])
+
+  const pos = new Map((orders ?? []).map(o => [o.photo_id, o.position]))
+  // les photos sans ordre perso (nouvelles photos) passent après, dans l'ordre par défaut
+  photos.value = [...(all ?? [])].sort(
+      (a, b) =>
+          (pos.get(a.id) ?? 1e6 + a.position) - (pos.get(b.id) ?? 1e6 + b.position)
+  )
 })
 
 async function saveOrder() {
+  if (!user.value) return
   const ids = photos.value.map(p => p.id)
-  const { error } = await supabase.rpc('reorder_photos', { ids })
+  const { error } = await supabase.rpc('save_photo_order', { ids })
   if (error) console.error(error)
 }
 
@@ -104,6 +127,7 @@ function onDrop(index) {
       over: overIndex === index && dragIndex !== index,
     }"
           :style="placement(index)"
+          :draggable="!!user"
           draggable="true"
           @dragstart="onDragStart(index, $event)"
           @dragover.prevent="overIndex = index"
@@ -123,8 +147,11 @@ function onDrop(index) {
   <PhotoCarousel
       v-if="selected"
       :images="related"
+      :insta="selected.compte_insta"
       @close="selected = null"
   />
+
+  <button v-if="user" class="logout" @click="logout">Se déconnecter</button>
 </template>
 
 <style scoped>
@@ -181,4 +208,18 @@ function onDrop(index) {
 }
 .dragging { opacity: 0.4; }
 .over .thumb { outline: 3px solid #4a90e2; outline-offset: 2px; }
+.logout {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  color: #fff;
+  background: #222;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  z-index: 10;
+}
+.logout:hover { background: #444; }
 </style>
