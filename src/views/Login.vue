@@ -3,29 +3,68 @@ import {ref} from 'vue'
 import {useRouter} from 'vue-router'
 import {supabase} from '@/lib/supabase.ts'
 
-const email = ref('')
+const FAKE_EMAIL_DOMAIN = 'monsite.app'
+
+const pseudo = ref('')
 const password = ref('')
 const errorMessage = ref('')
+const loading = ref(false)
 
 const router = useRouter()
 
-const login = async () => {
-  console.log('Ouverture page Login')
+const pseudoToEmail = (value) =>
+    `${value.trim().toLowerCase()}@${FAKE_EMAIL_DOMAIN}`
 
+const login = async () => {
   errorMessage.value = ''
 
-  const {error} = await supabase.auth.signInWithPassword({
-    email: email.value,
-    password: password.value
-  })
-
-  if (error) {
-    errorMessage.value = error.message
+  if (!pseudo.value.trim() || password.value.length < 6) {
+    errorMessage.value = 'Pseudo requis et mot de passe de 6 caractères minimum'
     return
   }
 
-  console.log('Connecté')
-  router.push('/accueil')
+  loading.value = true
+  const email = pseudoToEmail(pseudo.value)
+
+  // 1. Tentative de connexion
+  const {error: signInError} = await supabase.auth.signInWithPassword({
+    email,
+    password: password.value
+  })
+
+  if (!signInError) {
+    loading.value = false
+    router.push('/accueil')
+    return
+  }
+
+  if (signInError.code !== 'invalid_credentials') {
+    loading.value = false
+    errorMessage.value = signInError.message
+    return
+  }
+
+  // 2. Échec : compte inexistant ou mauvais mot de passe -> on tente la création
+  const {data, error: signUpError} = await supabase.auth.signUp({
+    email,
+    password: password.value
+  })
+
+  loading.value = false
+
+  if (signUpError) {
+    // Le compte existe déjà, donc c'était le mot de passe qui était faux
+    errorMessage.value = signUpError.code === 'user_already_exists'
+        ? 'Pseudo ou mot de passe incorrect'
+        : signUpError.message
+    return
+  }
+
+  if (data.session) {
+    router.push('/accueil')
+  } else {
+    errorMessage.value = 'Compte créé mais non confirmé : désactivez "Confirm email" dans Supabase'
+  }
 }
 </script>
 
@@ -35,15 +74,17 @@ const login = async () => {
 
     <form @submit.prevent="login">
       <input
-          v-model="email"
-          placeholder="Email"
-          type="email"
+          v-model="pseudo"
+          placeholder="Pseudo"
+          type="text"
+          autocomplete="username"
       />
 
       <input
           v-model="password"
           placeholder="Mot de passe"
           type="password"
+          autocomplete="current-password"
       />
 
       <button type="submit">
