@@ -13,16 +13,14 @@ const user = ref(null)
 const router = useRouter()
 
 // --- responsive
-const isMobile = ref(false)
-let mq
-const onMq = e => (isMobile.value = e.matches)
+const width = ref(1200)
+const onResize = () => (width.value = window.innerWidth)
 
 onMounted(async () => {
   console.log('Home.vue : monté')
 
-  mq = window.matchMedia('(max-width: 640px)')
-  isMobile.value = mq.matches
-  mq.addEventListener('change', onMq)
+  window.addEventListener('resize', onResize)
+  onResize()
 
   const { data: auth, error: authError } = await supabase.auth.getUser()
   console.log('session :', auth?.user?.id, authError)
@@ -40,7 +38,7 @@ onMounted(async () => {
   )
 })
 
-onBeforeUnmount(() => mq?.removeEventListener('change', onMq))
+onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 
 async function logout() {
   const { error } = await supabase.auth.signOut()
@@ -81,7 +79,7 @@ const GROUPS = [
   { title: 'Les autres', count: Infinity },
 ]
 
-const perRow = computed(() => (isMobile.value ? 4 : 7))
+const perRow = computed(() => (width.value < 640 ? 3 : width.value < 1024 ? 5 : 7))
 
 // n = nombre d'images sur la ligne ; chaque image occupe 2 demi-colonnes
 function cell(row, pos, n) {
@@ -228,25 +226,24 @@ function onCardClick(element, index) {
 
 <style scoped>
 .grid {
-  --size: 110px;
-  --gap: 12px;
+  --gap: clamp(0.4rem, 1.5vw, 0.9rem);
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: repeat(calc(var(--cols) * 2), calc((var(--size) - var(--gap)) / 2));
+  /* chaque photo occupe 2 demi-colonnes ; minmax(0, 1fr) évite que les titres élargissent la grille */
+  grid-template-columns: repeat(calc(var(--cols) * 2), minmax(0, 1fr));
   grid-auto-rows: auto;
   gap: var(--gap);
-  width: max-content;
-  max-width: 100%;
+  width: 100%;
+  max-width: 70rem; /* évite des photos géantes sur grand écran */
   margin: 0 auto;
-  padding: 12px 12px 80px; /* le bas laisse la place aux boutons fixes */
-  overflow-x: auto;
+  padding: 0.75rem 0.75rem 5rem; /* le bas laisse la place aux boutons fixes */
 }
 
 .items { display: contents; }
 
 .card {
   margin: 0;
-  width: var(--size);
+  min-width: 0;
   cursor: grab;
   user-select: none;
   -webkit-touch-callout: none;
@@ -261,8 +258,8 @@ function onCardClick(element, index) {
 }
 
 .caption {
-  margin-top: 6px;
-  font-size: 0.8rem;
+  margin-top: 0.35rem;
+  font-size: clamp(0.65rem, 1.8vw, 0.85rem);
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
@@ -271,10 +268,10 @@ function onCardClick(element, index) {
 
 .banner {
   grid-column: 1 / -1;
-  margin: 8px 0 0;
-  padding: 10px 16px;
+  margin: 0.5rem 0 0;
+  padding: 0.6em 1em;
   text-align: center;
-  font-size: 1.1rem;
+  font-size: clamp(0.9rem, 3vw, 1.2rem);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #fff;
@@ -288,8 +285,8 @@ function onCardClick(element, index) {
 
 .fab {
   position: fixed;
-  bottom: 16px;
-  padding: 10px 14px;
+  bottom: 1rem;
+  padding: 0.6rem 0.9rem;
   font-size: 0.9rem;
   color: #fff;
   background: #222;
@@ -299,17 +296,7 @@ function onCardClick(element, index) {
   z-index: 10;
 }
 .fab:hover { background: #444; }
-.logout { left: 16px; }
-.reorder { right: 16px; }
+.logout { left: 1rem; }
+.reorder { right: 1rem; }
 .reorder.active { background: #4a90e2; }
-
-@media (max-width: 640px) {
-  .grid {
-    --gap: 8px;
-    /* 4 colonnes qui tiennent exactement dans l'écran */
-    --size: calc((100vw - 26px - 3 * var(--gap)) / 4);
-  }
-  .caption { font-size: 0.7rem; }
-  .banner { font-size: 0.95rem; padding: 8px 12px; }
-}
 </style>
