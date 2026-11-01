@@ -97,3 +97,11 @@ const login = async () => {
     </p>
   </div>
 </template>
+
+<style scoped>
+.login {
+  max-width: 24rem;
+  margin: 4rem auto;
+  padding: 1rem;
+}
+</style>
