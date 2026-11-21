@@ -1,7 +1,8 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { supabase } from '@/lib/supabase' // ton client existant
+import { supabase } from '@/lib/supabase'
 import PhotoCarousel from '@/views/PhotoCarousel.vue'
+import Countdown from '@/components/Countdown.vue'
 import { useRouter } from 'vue-router'
 
 const photos = ref([])
@@ -17,7 +18,7 @@ async function logout() {
     return
   }
   user.value = null
-  router.push('/login') // adapte au chemin de ta page de login
+  router.push('/login')
 }
 
 onMounted(async () => {
@@ -55,7 +56,6 @@ async function openCarousel(photo) {
   // la photo principale en premier, puis les photos liées
   related.value = [photo.url, ...(data ?? []).map(i => i.url)]
 }
-
 
 // lignes à effectif fixe, puis lignes de TAIL images maximum pour le reste
 const ROWS = [1, 4, 7]
@@ -106,10 +106,10 @@ function onDrop(index) {
   photos.value = list
   saveOrder()
 }
-
 </script>
 
 <template>
+  <Countdown />
 
   <div class="grid" :style="{ '--cols': COLS }">
     <h2 class="banner" style="grid-row: 1">Miss France</h2>
@@ -123,12 +123,11 @@ function onDrop(index) {
           :key="element.id"
           class="card"
           :class="{
-      dragging: dragIndex === index,
-      over: overIndex === index && dragIndex !== index,
-    }"
+            dragging: dragIndex === index,
+            over: overIndex === index && dragIndex !== index,
+          }"
           :style="placement(index)"
           :draggable="!!user"
-          draggable="true"
           @dragstart="onDragStart(index, $event)"
           @dragover.prevent="overIndex = index"
           @dragleave="overIndex = null"
@@ -191,9 +190,11 @@ function onDrop(index) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .items {
   display: contents;
 }
+
 .banner {
   grid-column: 1 / -1;
   margin: 8px 0 0;
@@ -206,8 +207,10 @@ function onDrop(index) {
   background: #222;
   border-radius: 8px;
 }
+
 .dragging { opacity: 0.4; }
 .over .thumb { outline: 3px solid #4a90e2; outline-offset: 2px; }
+
 .logout {
   position: fixed;
   left: 16px;
