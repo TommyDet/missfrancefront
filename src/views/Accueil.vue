@@ -1,11 +1,17 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { supabase } from '@/lib/supabase'
 import PhotoCarousel from '@/views/PhotoCarousel.vue'
 import Countdown from '@/components/Countdown.vue'
 import { useRouter } from 'vue-router'
 
-const photos = ref([])
+const SLOTS = 12
+const ROWS = [1, 4, 7]
+const TAIL = 7
+const COLS = Math.max(...ROWS, TAIL)
+
+const slots = ref(Array(SLOTS).fill(null)) // 12 emplacements, null = vide
+const others = ref([]) // « Les autres »
 const selected = ref(null)
 const related = ref([])
 const user = ref(null)
@@ -32,16 +38,33 @@ onMounted(async () => {
   ])
 
   const pos = new Map((orders ?? []).map(o => [o.photo_id, o.position]))
-  // les photos sans ordre perso (nouvelles photos) passent après, dans l'ordre par défaut
-  photos.value = [...(all ?? [])].sort(
-      (a, b) =>
-          (pos.get(a.id) ?? 1e6 + a.position) - (pos.get(b.id) ?? 1e6 + b.position)
+  const sorted = [...(all ?? [])].sort(
+    (a, b) =>
+      (pos.get(a.id) ?? 1e6 + a.position) - (pos.get(b.id) ?? 1e6 + b.position)
   )
+
+  const s = Array(SLOTS).fill(null)
+  const rest = []
+  for (const p of sorted) {
+    // positions 1 à 12 = emplacements (ordinality commence à 1), 13 et + = « Les autres »
+    const k = pos.get(p.id)
+    if (k !== undefined && k >= 1 && k <= SLOTS && !s[k - 1]) s[k - 1] = p
+    else rest.push(p)
+  }
+  slots.value = s
+  // nouveau compte : toutes les photos sont ici, les 12 cases restent vides
+  others.value = rest
 })
 
+// Le tableau fait toujours 12 entrées pour les emplacements (null = case vide),
+// suivies des « autres ». La fonction SQL ignore les null mais garde leur rang
+// (with ordinality) : la position de chaque photo reste donc celle de sa case.
 async function saveOrder() {
   if (!user.value) return
-  const ids = photos.value.map(p => p.id)
+  const ids = [
+    ...slots.value.map(p => (p ? p.id : null)),
+    ...others.value.map(p => p.id),
+  ]
   const { error } = await supabase.rpc('save_photo_order', { ids })
   if (error) console.error(error)
 }
@@ -49,19 +72,13 @@ async function saveOrder() {
 async function openCarousel(photo) {
   selected.value = photo
   const { data } = await supabase
-      .from('photo_images')
-      .select('url')
-      .eq('photo_id', photo.id)
-      .order('position')
+    .from('photo_images')
+    .select('url')
+    .eq('photo_id', photo.id)
+    .order('position')
   // la photo principale en premier, puis les photos liées
   related.value = [photo.url, ...(data ?? []).map(i => i.url)]
 }
-
-// lignes à effectif fixe, puis lignes de TAIL images maximum pour le reste
-const ROWS = [1, 4, 7]
-const TAIL = 7
-const COLS = Math.max(...ROWS, TAIL)
-const fixedCount = ROWS.reduce((a, b) => a + b, 0)
 
 // n = nombre d'images sur la ligne ; chaque image occupe 2 demi-colonnes
 function cell(row, pos, n) {
@@ -69,41 +86,87 @@ function cell(row, pos, n) {
   return { gridRow: row, gridColumn: `${shift + pos * 2 + 1} / span 2` }
 }
 
-function placement(index) {
+function slotPlacement(index) {
   let start = 0
   for (let r = 0; r < ROWS.length; r++) {
     if (index < start + ROWS[r]) return cell(r * 2 + 2, index - start, ROWS[r])
     start += ROWS[r]
   }
-  const offset = index - fixedCount
-  const tailRow = Math.floor(offset / TAIL)
-  const rowStart = fixedCount + tailRow * TAIL
-  const n = Math.min(TAIL, photos.value.length - rowStart)
-  return cell(ROWS.length * 2 + 1 + tailRow, offset % TAIL, n)
 }
 
-const dragIndex = ref(null)
-const overIndex = ref(null)
+function otherPlacement(i) {
+  const tailRow = Math.floor(i / TAIL)
+  const n = Math.min(TAIL, others.value.length - tailRow * TAIL)
+  return cell(ROWS.length * 2 + 2 + tailRow, i % TAIL, n)
+}
 
-function onDragStart(index, e) {
-  dragIndex.value = index
+const cells = computed(() => [
+  ...slots.value.map((photo, i) => ({
+    key: 's' + i,
+    zone: 'slot',
+    i,
+    photo,
+    style: slotPlacement(i),
+  })),
+  ...others.value.map((photo, i) => ({
+    key: 'o' + photo.id,
+    zone: 'other',
+    i,
+    photo,
+    style: otherPlacement(i),
+  })),
+])
+
+// --- drag and drop ---
+const dragFrom = ref(null)
+const overKey = ref(null)
+
+function onDragStart(c, e) {
+  dragFrom.value = { zone: c.zone, i: c.i }
   e.dataTransfer.effectAllowed = 'move'
   e.dataTransfer.setData('text/plain', '') // requis par Firefox
 }
 
 function resetDrag() {
-  dragIndex.value = null
-  overIndex.value = null
+  dragFrom.value = null
+  overKey.value = null
 }
 
-function onDrop(index) {
-  const from = dragIndex.value
+// to = { zone, i } ; i = null pour le bandeau « Les autres »
+function onDrop(to) {
+  const from = dragFrom.value
   resetDrag()
-  if (from === null || from === index) return
+  if (!from || (from.zone === to.zone && from.i === to.i)) return
 
-  const list = [...photos.value]
-  ;[list[from], list[index]] = [list[index], list[from]]
-  photos.value = list
+  const s = [...slots.value]
+  const o = [...others.value]
+  const item = from.zone === 'slot' ? s[from.i] : o[from.i]
+  if (!item) return
+
+  if (to.zone === 'slot') {
+    const target = s[to.i]
+    s[to.i] = item
+    if (from.zone === 'slot') s[from.i] = target
+    else if (target) o[from.i] = target
+    else o.splice(from.i, 1)
+  } else if (to.i === null) {
+    // déposé sur le bandeau « Les autres »
+    if (from.zone === 'other') return
+    s[from.i] = null
+    o.push(item)
+  } else {
+    const target = o[to.i]
+    if (from.zone === 'slot') {
+      s[from.i] = target
+      o[to.i] = item
+    } else {
+      o[from.i] = target
+      o[to.i] = item
+    }
+  }
+
+  slots.value = s
+  others.value = o
   saveOrder()
 }
 </script>
@@ -115,30 +178,41 @@ function onDrop(index) {
     <h2 class="banner" style="grid-row: 1">Miss France</h2>
     <h2 class="banner" style="grid-row: 3">5 finalistes</h2>
     <h2 class="banner" style="grid-row: 5">12 concurrentes</h2>
-    <h2 class="banner" style="grid-row: 7">Les autres</h2>
+    <h2
+        class="banner"
+        style="grid-row: 7"
+        @dragover.prevent
+        @drop.prevent="onDrop({ zone: 'other', i: null })"
+    >
+      Les autres
+    </h2>
 
     <div class="items">
       <figure
-          v-for="(element, index) in photos"
-          :key="element.id"
+          v-for="c in cells"
+          :key="c.key"
           class="card"
           :class="{
-            dragging: dragIndex === index,
-            over: overIndex === index && dragIndex !== index,
+            empty: !c.photo,
+            dragging: dragFrom && dragFrom.zone === c.zone && dragFrom.i === c.i,
+            over: overKey === c.key,
           }"
-          :style="placement(index)"
-          :draggable="!!user"
-          @dragstart="onDragStart(index, $event)"
-          @dragover.prevent="overIndex = index"
-          @dragleave="overIndex = null"
-          @drop.prevent="onDrop(index)"
+          :style="c.style"
+          :draggable="!!user && !!c.photo"
+          @dragstart="onDragStart(c, $event)"
+          @dragover.prevent="overKey = c.key"
+          @dragleave="overKey = null"
+          @drop.prevent="onDrop({ zone: c.zone, i: c.i })"
           @dragend="resetDrag"
-          @click="openCarousel(element)"
+          @click="c.photo && openCarousel(c.photo)"
       >
-        <img :src="element.url" :alt="element.title" class="thumb" />
-        <figcaption class="caption" :title="element.title">
-          {{ element.title }}
-        </figcaption>
+        <template v-if="c.photo">
+          <img :src="c.photo.url" :alt="c.photo.title" class="thumb" />
+          <figcaption class="caption" :title="c.photo.title">
+            {{ c.photo.title }}
+          </figcaption>
+        </template>
+        <div v-else class="thumb placeholder"></div>
       </figure>
     </div>
   </div>
@@ -174,12 +248,21 @@ function onDrop(index) {
   user-select: none;
 }
 
+.card.empty {
+  cursor: default;
+}
+
 .thumb {
   display: block;
   width: 100%;
   aspect-ratio: 1;
   object-fit: cover;
   border-radius: 8px;
+}
+
+.placeholder {
+  border: 2px dashed #aaa;
+  background: rgba(128, 128, 128, 0.08);
 }
 
 .caption {
