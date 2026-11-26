@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { supabase } from '@/lib/supabase'
 import PhotoCarousel from '@/views/PhotoCarousel.vue'
 import Countdown from '@/components/Countdown.vue'
@@ -9,6 +9,8 @@ const SLOTS = 12
 const ROWS = [1, 4, 7]
 const TAIL = 7
 const COLS = Math.max(...ROWS, TAIL)
+const LABELS = ['Miss France', '5 finalistes', '12 concurrentes']
+const MOBILE_MAX = 3
 
 const slots = ref(Array(SLOTS).fill(null)) // 12 emplacements, null = vide
 const others = ref([]) // « Les autres »
@@ -16,6 +18,18 @@ const selected = ref(null)
 const related = ref([])
 const user = ref(null)
 const router = useRouter()
+
+// --- détection mobile ---
+const mobile = ref(false)
+let mq = null
+const onMq = (e) => (mobile.value = e.matches)
+
+onMounted(() => {
+  mq = window.matchMedia('(max-width: 640px)')
+  mobile.value = mq.matches
+  mq.addEventListener('change', onMq)
+})
+onUnmounted(() => mq?.removeEventListener('change', onMq))
 
 // --- mode réorganiser (mobile / tactile) ---
 const editMode = ref(false)
@@ -89,24 +103,54 @@ async function openCarousel(photo) {
   related.value = [photo.url, ...(data ?? []).map(i => i.url)]
 }
 
+// --- placement dans la grille ---
+
+// répartit n éléments en lignes de max `max`, de façon équilibrée (7 -> 3,2,2)
+function split(n, max) {
+  const lines = Math.ceil(n / max)
+  const base = Math.floor(n / lines)
+  const extra = n % lines
+  return Array.from({ length: lines }, (_, i) => base + (i < extra ? 1 : 0))
+}
+
 // n = nombre d'images sur la ligne ; chaque image occupe 2 demi-colonnes
-function cell(row, pos, n) {
-  const shift = COLS - n
+function cell(row, pos, n, cols) {
+  const shift = cols - n
   return { gridRow: row, gridColumn: `${shift + pos * 2 + 1} / span 2` }
 }
 
-function slotPlacement(index) {
-  let start = 0
-  for (let r = 0; r < ROWS.length; r++) {
-    if (index < start + ROWS[r]) return cell(r * 2 + 2, index - start, ROWS[r])
-    start += ROWS[r]
+// calcule la position des bandeaux et des 12 emplacements selon l'écran
+const layout = computed(() => {
+  const max = mobile.value ? MOBILE_MAX : Infinity
+  const cols = mobile.value ? MOBILE_MAX : COLS
+  const banners = []
+  const slotStyle = []
+  let row = 1
+
+  ROWS.forEach((n, s) => {
+    banners.push({ row, label: LABELS[s] })
+    row++
+    for (const len of split(n, max)) {
+      for (let p = 0; p < len; p++) slotStyle.push(cell(row, p, len, cols))
+      row++
+    }
+  })
+
+  banners.push({ row, label: 'Les autres', other: true })
+  return {
+    cols,
+    banners,
+    slotStyle,
+    otherStart: row + 1,
+    perRow: mobile.value ? MOBILE_MAX : TAIL,
   }
-}
+})
 
 function otherPlacement(i) {
-  const tailRow = Math.floor(i / TAIL)
-  const n = Math.min(TAIL, others.value.length - tailRow * TAIL)
-  return cell(ROWS.length * 2 + 2 + tailRow, i % TAIL, n)
+  const { cols, otherStart, perRow } = layout.value
+  const tailRow = Math.floor(i / perRow)
+  const n = Math.min(perRow, others.value.length - tailRow * perRow)
+  return cell(otherStart + tailRow, i % perRow, n, cols)
 }
 
 const cells = computed(() => [
@@ -115,7 +159,7 @@ const cells = computed(() => [
     zone: 'slot',
     i,
     photo,
-    style: slotPlacement(i),
+    style: layout.value.slotStyle[i],
   })),
   ...others.value.map((photo, i) => ({
     key: 'o' + photo.id,
@@ -212,18 +256,17 @@ function onBannerTap() {
 <template>
   <Countdown />
 
-  <div class="grid" :style="{ '--cols': COLS }">
-    <h2 class="banner" style="grid-row: 1">Miss France</h2>
-    <h2 class="banner" style="grid-row: 3">5 finalistes</h2>
-    <h2 class="banner" style="grid-row: 5">12 concurrentes</h2>
+  <div class="grid" :style="{ '--cols': layout.cols }">
     <h2
+        v-for="b in layout.banners"
+        :key="b.row"
         class="banner"
-        style="grid-row: 7"
-        @click="onBannerTap"
+        :style="{ gridRow: b.row }"
+        @click="b.other && onBannerTap()"
         @dragover.prevent
-        @drop.prevent="onDrop({ zone: 'other', i: null })"
+        @drop.prevent="b.other && onDrop({ zone: 'other', i: null })"
     >
-      Les autres
+      {{ b.label }}
     </h2>
 
     <div class="items">
@@ -364,4 +407,14 @@ function onBannerTap() {
 .reorder:hover { background: #444; }
 .reorder.active,
 .reorder.active:hover { background: #4a90e2; }
+
+/* mobile : 3 photos max en largeur */
+@media (max-width: 640px) {
+  .grid {
+    --gap: 10px;
+    /* 3 photos qui tiennent exactement dans l'écran (#app a 2rem de padding de chaque côté) */
+    --size: calc((100vw - 4rem - 2 * var(--gap)) / 3);
+  }
+  .caption { font-size: 0.7rem; }
+}
 </style>
