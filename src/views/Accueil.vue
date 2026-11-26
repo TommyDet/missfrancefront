@@ -17,6 +17,15 @@ const related = ref([])
 const user = ref(null)
 const router = useRouter()
 
+// --- mode réorganiser (mobile / tactile) ---
+const editMode = ref(false)
+const picked = ref(null) // { zone, i } de la photo sélectionnée
+
+function toggleEdit() {
+  editMode.value = !editMode.value
+  picked.value = null
+}
+
 async function logout() {
   const { error } = await supabase.auth.signOut()
   if (error) {
@@ -117,25 +126,9 @@ const cells = computed(() => [
   })),
 ])
 
-// --- drag and drop ---
-const dragFrom = ref(null)
-const overKey = ref(null)
-
-function onDragStart(c, e) {
-  dragFrom.value = { zone: c.zone, i: c.i }
-  e.dataTransfer.effectAllowed = 'move'
-  e.dataTransfer.setData('text/plain', '') // requis par Firefox
-}
-
-function resetDrag() {
-  dragFrom.value = null
-  overKey.value = null
-}
-
-// to = { zone, i } ; i = null pour le bandeau « Les autres »
-function onDrop(to) {
-  const from = dragFrom.value
-  resetDrag()
+// --- déplacement (commun au drag souris et au tap mobile) ---
+// from / to = { zone, i } ; to.i = null pour le bandeau « Les autres »
+function move(from, to) {
   if (!from || (from.zone === to.zone && from.i === to.i)) return
 
   const s = [...slots.value]
@@ -169,6 +162,51 @@ function onDrop(to) {
   others.value = o
   saveOrder()
 }
+
+// --- drag and drop (ordinateur) ---
+const dragFrom = ref(null)
+const overKey = ref(null)
+
+function onDragStart(c, e) {
+  dragFrom.value = { zone: c.zone, i: c.i }
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', '') // requis par Firefox
+}
+
+function resetDrag() {
+  dragFrom.value = null
+  overKey.value = null
+}
+
+function onDrop(to) {
+  const from = dragFrom.value
+  resetDrag()
+  move(from, to)
+}
+
+// --- tap (mobile) ---
+function onCardClick(c) {
+  if (!editMode.value) {
+    if (c.photo) openCarousel(c.photo)
+    return
+  }
+  if (!user.value) return
+  if (!picked.value) {
+    if (c.photo) picked.value = { zone: c.zone, i: c.i }
+    return
+  }
+  const from = picked.value
+  picked.value = null
+  move(from, { zone: c.zone, i: c.i })
+}
+
+// toucher « Les autres » avec une photo sélectionnée
+function onBannerTap() {
+  if (!editMode.value || !picked.value) return
+  const from = picked.value
+  picked.value = null
+  move(from, { zone: 'other', i: null })
+}
 </script>
 
 <template>
@@ -181,6 +219,7 @@ function onDrop(to) {
     <h2
         class="banner"
         style="grid-row: 7"
+        @click="onBannerTap"
         @dragover.prevent
         @drop.prevent="onDrop({ zone: 'other', i: null })"
     >
@@ -196,15 +235,16 @@ function onDrop(to) {
             empty: !c.photo,
             dragging: dragFrom && dragFrom.zone === c.zone && dragFrom.i === c.i,
             over: overKey === c.key,
+            picked: picked && picked.zone === c.zone && picked.i === c.i,
           }"
           :style="c.style"
-          :draggable="!!user && !!c.photo"
+          :draggable="!!user && !!c.photo && !editMode"
           @dragstart="onDragStart(c, $event)"
           @dragover.prevent="overKey = c.key"
           @dragleave="overKey = null"
           @drop.prevent="onDrop({ zone: c.zone, i: c.i })"
           @dragend="resetDrag"
-          @click="c.photo && openCarousel(c.photo)"
+          @click="onCardClick(c)"
       >
         <template v-if="c.photo">
           <img :src="c.photo.url" :alt="c.photo.title" class="thumb" />
@@ -225,6 +265,14 @@ function onDrop(to) {
   />
 
   <button v-if="user" class="logout" @click="logout">Se déconnecter</button>
+  <button
+      v-if="user"
+      class="reorder"
+      :class="{ active: editMode }"
+      @click="toggleEdit"
+  >
+    {{ editMode ? 'Terminer' : 'Réorganiser' }}
+  </button>
 </template>
 
 <style scoped>
@@ -246,6 +294,8 @@ function onDrop(to) {
   width: var(--size);
   cursor: grab;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .card.empty {
@@ -293,10 +343,11 @@ function onDrop(to) {
 
 .dragging { opacity: 0.4; }
 .over .thumb { outline: 3px solid #4a90e2; outline-offset: 2px; }
+.picked .thumb { outline: 3px solid #e2574a; outline-offset: 2px; }
 
-.logout {
+.logout,
+.reorder {
   position: fixed;
-  left: 16px;
   bottom: 16px;
   padding: 8px 14px;
   font-size: 0.9rem;
@@ -307,5 +358,10 @@ function onDrop(to) {
   cursor: pointer;
   z-index: 10;
 }
-.logout:hover { background: #444; }
+.logout { left: 16px; }
+.reorder { right: 16px; }
+.logout:hover,
+.reorder:hover { background: #444; }
+.reorder.active,
+.reorder.active:hover { background: #4a90e2; }
 </style>
